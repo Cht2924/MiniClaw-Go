@@ -3,6 +3,13 @@ sessions/*.summary.md
 traces/**/*.json
 workspace/**
 !workspace/.gitkeep
+!workspace/github_top10_stars_test.md
+!workspace/web_search_visualization_test.md
+!workspace/charts/
+!workspace/charts/github_top10_stars_bar.png
+!workspace/charts/github_top10_stars_pie.png
+!workspace/charts/web_search_source_bar.png
+!workspace/charts/web_search_source_pie.png
 .gocache/
 miniclaw.exe
 miniclaw.exe~
