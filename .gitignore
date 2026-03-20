@@ -1,0 +1,12 @@
+sessions/*.jsonl
+sessions/*.summary.md
+traces/**/*.json
+workspace/**
+!workspace/.gitkeep
+.gocache/
+miniclaw.exe
+miniclaw.exe~
+memory/session/**
+!memory/session/.gitkeep
+
+configs/config.local.yaml

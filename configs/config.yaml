@@ -1,0 +1,38 @@
+llm:
+  provider: openai-compatible
+  base_url: https://ark.cn-beijing.volces.com/api/v3
+  api_key: ""
+  model: doubao-seed-1-8-251228
+  max_context_tokens: 8192
+  temperature: 0.2
+
+agent:
+  max_steps: 8
+  summary_keep_recent: 4
+  summarize_message_threshold: 20
+  summarize_token_percent: 75
+
+workspace:
+  root: ../workspace
+
+memory:
+  root: ../memory
+
+skills:
+  root: ../skills
+
+sessions:
+  root: ../sessions
+
+traces:
+  root: ../traces
+
+tools:
+  command_timeout: 10s
+
+mcp:
+  servers:
+    - name: github
+      command: docker
+      args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server", "stdio", "--read-only", "--toolsets=repos,issues,pull_requests,actions"]
+      env: {}
