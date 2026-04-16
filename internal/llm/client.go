@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,6 +25,13 @@ type Completion struct {
 	Content   string
 	ToolCalls []core.ToolCall
 }
+
+var (
+	reThinkBlock     = regexp.MustCompile(`(?is)<think>.*?</think>`)
+	reThinkingBlock  = regexp.MustCompile(`(?is)<thinking>.*?</thinking>`)
+	reLineSpace      = regexp.MustCompile(`[ \t]+\n`)
+	reExtraBlankLine = regexp.MustCompile(`\n{3,}`)
+)
 
 func NewClient(cfg config.LLMConfig) *Client {
 	return &Client{
@@ -83,7 +91,7 @@ func (c *Client) Complete(ctx context.Context, systemPrompt string, history []co
 	}
 
 	msg := parsed.Choices[0].Message
-	result := Completion{Content: msg.Content}
+	result := Completion{Content: sanitizeAssistantContent(msg.Content)}
 	for _, tc := range msg.ToolCalls {
 		result.ToolCalls = append(result.ToolCalls, core.ToolCall{
 			ID:        tc.ID,
@@ -140,24 +148,46 @@ func (c *Client) CompleteText(ctx context.Context, systemPrompt string, history 
 		return "", fmt.Errorf("llm response contained no choices")
 	}
 
-	return strings.TrimSpace(parsed.Choices[0].Message.Content), nil
+	return sanitizeAssistantContent(parsed.Choices[0].Message.Content), nil
 }
 
 func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		clone := req.Clone(req.Context())
+	for attempt := 0; attempt < 3; attempt++ {
+		clone, err := cloneRequest(req)
+		if err != nil {
+			return nil, err
+		}
 		resp, err := c.httpClient.Do(clone)
 		if err == nil {
-			return resp, nil
+			if !shouldRetryHTTPStatus(resp.StatusCode) || attempt == 2 {
+				return resp, nil
+			}
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
+			time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+			continue
 		}
 		lastErr = err
-		if !isRetryableHTTPErr(err) || attempt == 1 {
-			break
+		if !isRetryableHTTPErr(err) || attempt == 2 {
+			return nil, err
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
 	}
 	return nil, lastErr
+}
+
+func cloneRequest(req *http.Request) (*http.Request, error) {
+	clone := req.Clone(req.Context())
+	if req.GetBody == nil {
+		return clone, nil
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, err
+	}
+	clone.Body = body
+	return clone, nil
 }
 
 func isRetryableHTTPErr(err error) bool {
@@ -171,6 +201,12 @@ func isRetryableHTTPErr(err error) bool {
 	}
 	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "timeout") || strings.Contains(text, "tempor") || strings.Contains(text, "handshake")
+}
+
+func shouldRetryHTTPStatus(code int) bool {
+	return code == http.StatusRequestTimeout ||
+		code == http.StatusTooManyRequests ||
+		(code >= 500 && code <= 599)
 }
 
 func IsContextWindowError(err error) bool {
@@ -276,4 +312,12 @@ func buildTools(tools []core.ToolDescriptor) []apiTool {
 		})
 	}
 	return output
+}
+
+func sanitizeAssistantContent(content string) string {
+	cleaned := reThinkBlock.ReplaceAllString(content, "")
+	cleaned = reThinkingBlock.ReplaceAllString(cleaned, "")
+	cleaned = reLineSpace.ReplaceAllString(cleaned, "\n")
+	cleaned = reExtraBlankLine.ReplaceAllString(cleaned, "\n\n")
+	return strings.TrimSpace(cleaned)
 }
